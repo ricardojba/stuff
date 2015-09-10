@@ -8,7 +8,7 @@
 ; Ange Albertini, BSD Licence 2013
 
 ; get http://yasm.tortall.net/Download.html
-; yamal gifjs.asm -o img.gif
+; yasm gifjs.asm -o img.gif
 
 WIDTH equ 10799 ; equivalent to 2f2a, which is '/*' in ASCII, thus starting an opening comment
 
